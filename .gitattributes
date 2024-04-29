@@ -1,2 +1,156 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+// Universidad del valle de Guatemala
+// IE2023 Programación de Microcontroladores
+// Author : Victor Vanegas - 22829
+// Laboratorio: Laboratorio5.asm
+// Descripción: Enviar caracter y verlo desde la hiperterminal
+// Hardware: ATMega328P
+
+#define  F_CPU 16000000UL
+#include <avr/io.h>
+#include <util/delay.h>
+#include <avr/interrupt.h>
+#include <ctype.h>
+#include <stdio.h>
+
+void InitializeADC(void);
+void InitializeUART(void);
+void TransmitTextUART(char * Text);
+void TransmitUART(char Character);
+void ReceiveUART(void);
+void ReadPotentiometer(void);
+void ReadASCII(void);
+char IntToChar(int);
+
+volatile uint8_t BufferTX;
+volatile uint8_t bit6;
+volatile uint8_t bit2;
+volatile uint8_t mode;
+volatile uint8_t adcValue;
+volatile uint8_t asciiValue;
+volatile uint8_t requestMode;
+
+int main(void)
+{
+    InitializeUART();
+	sei();
+	InitializeADC();
+    requestMode = 0;
+	
+    while (1) 
+    {
+        TransmitTextUART("\n\r");
+	    TransmitTextUART("Read Potentiometer = 1 or Write Character = 2: ");
+ 	    requestMode = 0;
+		BufferTX = 0;
+		while (requestMode == 0)
+		{
+			mode = BufferTX;
+			switch (mode)
+			{
+				case 49: // If the value from the terminal is 1 = 49, then we're in potentiometer mode.
+				requestMode = 1;
+				break;
+				case 50: // If the value from the terminal is 2 = 50, then we're in ASCII mode.
+				requestMode = 1;
+				break;
+			}
+		}
+		switch (mode)
+		{
+			case 49: // If the value from the terminal is 1 = 49, then we're in potentiometer mode.
+			ReadPotentiometer();
+			break;
+			case 50: // If the value from the terminal is 2 = 50, then we're in ASCII mode.
+			ReadASCII();
+			break;	
+		}
+	}
+}
+
+void InitializeUART(void){
+	DDRB = 0xFF;
+	DDRC |= (1<<DDC1)|(1<<DDD0);
+	PORTC = 0;
+	DDRD |= (1<<DDD1);
+	DDRD &= ~(1<<DDD0);
+	UCSR0A = 0;
+	UCSR0B = 0;
+	UCSR0B |= (1<<RXCIE0) | (1<<RXEN0) | (1<<TXEN0);
+	UCSR0C = 0;
+	UCSR0C |= (1<<UCSZ01) | (1<<UCSZ00);
+	UBRR0 = 103;
+}
+
+void InitializeADC(void){
+	ADMUX |= (1 << REFS0);
+	ADMUX &= ~(1 << REFS1);
+	ADMUX |= (1 << ADLAR);
+	DIDR0 |= (1 << ADC2D);
+	ADMUX |= (1 << MUX1);
+	ADCSRA = 0;
+	ADCSRA |= (1 << ADIE);
+	ADCSRA |= (1 << ADPS2)|(1 << ADPS1)|(1 << ADPS0);
+	ADCSRA |= (1 << ADEN);
+}
+
+void TransmitUART(char Character){
+	while(!(UCSR0A & (1<<UDRE0)));
+	UDR0 = Character;
+	PORTD = Character;
+}
+
+ISR(USART_RX_vect){
+	BufferTX = UDR0;
+	while(!(UCSR0A & (1<<UDRE0)));
+	UDR0 = BufferTX;
+}
+
+ISR(ADC_vect){
+	adcValue = ADCH;
+	ADCSRA |= (1<<ADIF);
+}
+
+void TransmitTextUART(char * Text){
+	uint8_t i;
+	for (i=0; Text[i]!= '\0'; i++){
+		while (!(UCSR0A & (1<<UDRE0)) );
+		UDR0 = Text[i];
+	}
+}
+
+void ReadPotentiometer(void){
+	int potValue, unitValue, tenValue, hundredValue;
+	adcValue = ADCH;
+	ADCSRA |= (1<<ADSC);
+	bit6 = adcValue & 0x3F;
+	PORTB = bit6;
+	bit2 = ((adcValue & 0xC0) >> 6);
+	PORTC = bit2;
+	potValue = adcValue;
+	hundredValue = potValue / 100.0;
+	tenValue  = (potValue - (hundredValue*100)) / 10.0;
+	unitValue  = (potValue - (hundredValue*100) - (tenValue*10));
+ 	TransmitTextUART("\n\r");
+ 	TransmitTextUART("Potentiometer reading: ");
+    TransmitUART(hundredValue+48);
+    TransmitUART(tenValue+48);
+    TransmitUART(unitValue+48);
+
+	while (ADCSRA & (1 << ADSC));
+}
+
+void ReadASCII (void){
+	volatile uint8_t asciiValue;
+	_delay_ms(100);
+	TransmitTextUART("\n\r");
+	TransmitTextUART(" Press a key: ");
+	BufferTX = 0;
+	while (BufferTX == 0)
+		{
+			asciiValue = BufferTX;
+		}
+	bit6 = asciiValue & 0x3F;
+	PORTB = bit6;
+	bit2 = ((asciiValue & 0xC0) >> 6);
+	PORTC = bit2;
+}
